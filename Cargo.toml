@@ -1,0 +1,11 @@
+[package]
+name = "jigshuffle"
+version = "0.1.0"
+edition = "2021"
+authors = ["Dheatly23 <71598333+Dheatly23@users.noreply.github.com>"]
+
+[dependencies]
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }
+image = "0.24"
+ndarray = { version = "0.15", features = ["rayon"] }

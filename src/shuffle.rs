@@ -1,6 +1,6 @@
 use ndarray::parallel::prelude::*;
 use ndarray::prelude::*;
-use ndarray::Zip;
+use ndarray::{Slice, Zip};
 use rand::prelude::*;
 
 fn mask_expand(mut mask: ArrayViewMut2<u64>, chunk_po2: usize) {
@@ -20,15 +20,31 @@ fn mask_expand(mut mask: ArrayViewMut2<u64>, chunk_po2: usize) {
     }
 }
 
-pub(crate) fn shuffle_commands<R: Rng, F>(
-    mut mask: ArrayViewMut2<u64>,
+pub fn jigshuffle<'a, A, D, R>(
+    arr: ArrayView<'_, A, D>,
+    mask: ArrayView2<'_, bool>,
     chunk_po2: usize,
-    mut random: R,
-    mut f: F,
-) where
-    F: FnMut(Vec<(usize, usize)>, Vec<usize>, usize),
+    random: &mut R,
+) -> Array<A, D>
+where
+    A: 'a + Clone + Send + Sync,
+    D: Dimension,
+    R: Rng,
 {
+    if &arr.shape()[..2] != mask.shape() {
+        let s1 = arr.shape();
+        let s2 = mask.shape();
+        panic!(
+            "Array shape mismatch with mask ([{} {}] != [{} {}])",
+            s1[0], s1[1], s2[0], s2[1],
+        );
+    }
+
+    let mut mask: Array2<u64> = mask.mapv(|v| if v { 0 } else { 1 });
+
     mask_expand(mask.view_mut(), chunk_po2);
+
+    let mut out = arr.to_owned();
 
     for s in (0..=chunk_po2).rev() {
         let m = 1u64 << s;
@@ -52,8 +68,42 @@ pub(crate) fn shuffle_commands<R: Rng, F>(
         }
 
         let mut indices: Vec<_> = (0..blocks.len()).collect();
-        indices.shuffle(&mut random);
+        indices.shuffle(&mut *random);
 
-        f(blocks, indices, m_);
+        let arr = arr.view();
+        let out = out.view_mut();
+        let blocks = &blocks[..];
+
+        blocks
+            .par_iter()
+            .enumerate()
+            .for_each(move |(i, &(mut r, mut c))| {
+                let mut arr = arr.view();
+                arr.slice_axis_inplace(Axis(0), Slice::from(r..r + m_));
+                arr.slice_axis_inplace(Axis(1), Slice::from(c..c + m_));
+
+                let mut out = out.view();
+                (r, c) = blocks[indices[i]];
+                out.slice_axis_inplace(Axis(0), Slice::from(r..r + m_));
+                out.slice_axis_inplace(Axis(1), Slice::from(c..c + m_));
+
+                // SAFETY: Output slices is guaranteed to be non-overlapping
+                #[allow(mutable_transmutes)]
+                unsafe {
+                    // We have to do this because strides() is aliased
+                    let mut strides = D::zeros(out.ndim());
+                    for i in 0..out.ndim() {
+                        strides[i] = out.stride_of(Axis(i)) as _;
+                    }
+                    let out = <RawArrayViewMut<A, D>>::from_shape_ptr(
+                        out.raw_dim().strides(strides),
+                        out.as_ptr() as *mut A,
+                    )
+                    .deref_into_view_mut();
+                    azip!((d in out, s in arr) s.clone_into(d));
+                }
+            });
     }
+
+    out
 }

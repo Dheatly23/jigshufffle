@@ -2,7 +2,6 @@ mod shuffle;
 
 use std::fs::File;
 use std::io::BufReader;
-use std::mem;
 use std::path::PathBuf;
 
 use anyhow::Error;
@@ -48,7 +47,7 @@ fn main() -> Result<(), Error> {
         );
     }
 
-    let random = if let Some(seed) = args.seed {
+    let mut random = if let Some(seed) = args.seed {
         let mut hasher = Sha256::new();
         hasher.update(seed);
 
@@ -61,63 +60,54 @@ fn main() -> Result<(), Error> {
         .with_guessed_format()?
         .decode()?;
 
-    let mut mask = if let Some(p) = args.mask {
+    let mask = if let Some(p) = args.mask {
         let mi = ImageReader::new(BufReader::new(File::open(p)?))
             .with_guessed_format()?
             .decode()?
             .into_luma8();
 
-        let mut arr = <Array2<u64>>::zeros((im.height() as usize, im.width() as usize));
+        let mut arr = <Array2<bool>>::default((im.height() as usize, im.width() as usize));
         par_azip!((index (i, j), a in &mut arr) {
             *a = match mi.get_pixel_checked(i as _, j as _) {
-                None | Some(Luma([0])) => 0,
-                _ => 1,
+                None | Some(Luma([0])) => false,
+                _ => true,
             };
         });
         arr
     } else {
-        <Array2<u64>>::ones((im.height() as usize, im.width() as usize))
+        <Array2<bool>>::from_elem((im.height() as usize, im.width() as usize), true)
     };
 
-    let mut out = im.as_bytes().to_vec();
+    let arr = <ArrayView3<u8>>::from_shape(
+        (
+            im.width() as usize,
+            im.height() as usize,
+            match im {
+                DynamicImage::ImageLuma8(_) => 1,
+                DynamicImage::ImageLumaA8(_) => 2,
+                DynamicImage::ImageRgb8(_) => 3,
+                DynamicImage::ImageRgba8(_) => 4,
+                DynamicImage::ImageLuma16(_) => 2,
+                DynamicImage::ImageLumaA16(_) => 4,
+                DynamicImage::ImageRgb16(_) => 6,
+                DynamicImage::ImageRgba16(_) => 8,
+                DynamicImage::ImageRgb32F(_) => 12,
+                DynamicImage::ImageRgba32F(_) => 16,
+                _ => unreachable!("Unsupported image format"),
+            },
+        ),
+        im.as_bytes(),
+    )?;
 
-    let f = {
-        let (x_stride, y_stride): (usize, usize) = match &im {
-            DynamicImage::ImageLuma8(im) => (1, im.width() as usize),
-            DynamicImage::ImageLumaA8(im) => (2, im.width() as usize * 2),
-            DynamicImage::ImageRgb8(im) => (3, im.width() as usize * 3),
-            DynamicImage::ImageRgba8(im) => (4, im.width() as usize * 4),
-            DynamicImage::ImageLuma16(im) => (2, im.width() as usize * 2),
-            DynamicImage::ImageLumaA16(im) => (4, im.width() as usize * 4),
-            DynamicImage::ImageRgb16(im) => (6, im.width() as usize * 6),
-            DynamicImage::ImageRgba16(im) => (8, im.width() as usize * 8),
-            DynamicImage::ImageRgb32F(im) => (12, im.width() as usize * 12),
-            DynamicImage::ImageRgba32F(im) => (16, im.width() as usize * 16),
-            _ => unreachable!("Unsupported image format!"),
-        };
-        let im = im.as_bytes();
-        let out = &mut out[..];
-        move |blocks: Vec<(usize, usize)>, indices: Vec<usize>, size: usize| {
-            let w = size * x_stride;
-            blocks.par_iter().enumerate().for_each(|(i, &(y, x))| {
-                let (y_, x_) = blocks[indices[i]];
-                for v in 0..size {
-                    let i = x * x_stride + (y + v) * y_stride;
-                    let j = x_ * x_stride + (y_ + v) * y_stride;
+    let out = shuffle::jigshuffle(arr, mask.view(), tile_size, &mut random);
 
-                    // SAFETY: Output slice is guaranteed to be non-overlapping
-                    #[allow(mutable_transmutes)]
-                    unsafe {
-                        let out = mem::transmute::<&[u8], &mut [u8]>(out);
-                        out[j..j + w].copy_from_slice(&im[i..i + w]);
-                    }
-                }
-            })
-        }
-    };
-    shuffle::shuffle_commands(mask.view_mut(), tile_size, random, f);
-
-    save_buffer(args.output, &out, im.width(), im.height(), im.color())?;
+    save_buffer(
+        args.output,
+        out.as_slice().expect("Should be standard-layout"),
+        im.width(),
+        im.height(),
+        im.color(),
+    )?;
 
     Ok(())
 }

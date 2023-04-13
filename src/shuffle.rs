@@ -82,26 +82,15 @@ where
                 arr.slice_axis_inplace(Axis(0), Slice::from(r..r + m_));
                 arr.slice_axis_inplace(Axis(1), Slice::from(c..c + m_));
 
-                let mut out = out.view();
+                let mut out = out.raw_view();
                 (r, c) = blocks[indices[i]];
                 out.slice_axis_inplace(Axis(0), Slice::from(r..r + m_));
                 out.slice_axis_inplace(Axis(1), Slice::from(c..c + m_));
 
                 // SAFETY: Output slices is guaranteed to be non-overlapping
-                #[allow(mutable_transmutes)]
-                unsafe {
-                    // We have to do this because strides() is aliased
-                    let mut strides = D::zeros(out.ndim());
-                    for i in 0..out.ndim() {
-                        strides[i] = out.stride_of(Axis(i)) as _;
-                    }
-                    let out = <RawArrayViewMut<A, D>>::from_shape_ptr(
-                        out.raw_dim().strides(strides),
-                        out.as_ptr() as *mut A,
-                    )
-                    .deref_into_view_mut();
-                    azip!((d in out, s in arr) s.clone_into(d));
-                }
+                azip!((d in out, s in arr) unsafe {
+                    (*(d as *mut A)).clone_from(s)
+                });
             });
     }
 

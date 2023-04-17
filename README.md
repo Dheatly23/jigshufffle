@@ -1,4 +1,4 @@
-![Icon](images/icon,svg)
+![Icon](images/icon.svg)
 
 # Jigshuffle
 

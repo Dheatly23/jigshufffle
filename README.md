@@ -1,3 +1,5 @@
+![Icon](images/icon,svg)
+
 # Jigshuffle
 
 Shuffle images semi-nondestructively.

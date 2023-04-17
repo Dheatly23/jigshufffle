@@ -1,4 +1,4 @@
-//! Library to semi-destructively shuffle image/array.
+//! Library to semi-nondestructively shuffle image/array.
 //!
 //! This library defines one function, [jigshuffle].
 //! It's used to shuffle any array (with mask), and shuffle it such that:

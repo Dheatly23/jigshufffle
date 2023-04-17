@@ -36,6 +36,16 @@ fn mask_expand(mut mask: ArrayViewMut2<u64>, chunk_po2: usize) {
     }
 }
 
+/// Main jigshuffle algorithm.
+///
+/// Shuffles an input array with mask and produces shuffled output.
+///
+/// Parameters:
+/// * `arr` : Input array view. Can be multidimensional,
+///   but only the first 2 dimension will be shuffled.
+/// * `mask` : Mask array view. Must be the same size, otherwise it panics.
+/// * `chunk_po2` : Chunk size in exponent of 2. Can be obtained by [usize.ilog2()].
+/// * `random` : Random number generator.
 pub fn jigshuffle<'a, A, D, R>(
     arr: ArrayView<'_, A, D>,
     mask: ArrayView2<'_, bool>,

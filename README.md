@@ -1,4 +1,4 @@
-![Icon](images/icon.svg)
+<img src="images/icon.svg" width="128" height="128">
 
 # Jigshuffle
 
@@ -15,14 +15,14 @@ all the data is preserved, while being not very obvious.
 
 ## Example
 
-Original:
-![Source Image](images/image_orig.png)
+Original:  
+<img src="images/image_orig.png" alt="Source Image" height="360">
 
-Mask:
-![Mask Image](images/image_mask.png)
+Mask:  
+<img src="images/image_mask.png" alt="Mask Image" height="360">
 
-Output (using seed `C12AF7ED`):
-![Output Image](images/image_out.png)
+Output (using seed `C12AF7ED`):  
+<img src="images/image_out.png" alt="Output Image" height="360">
 
 ## Using
 

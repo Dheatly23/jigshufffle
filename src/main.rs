@@ -67,9 +67,10 @@ fn main() -> Result<(), Error> {
             .into_luma8();
 
         let mut arr = <Array2<bool>>::default((im.height() as usize, im.width() as usize));
-        par_azip!((index (i, j), a in &mut arr) {
-            *a = match mi.get_pixel_checked(i as _, j as _) {
-                None | Some(Luma([0])) => false,
+        par_azip!((index (y, x), a in &mut arr) {
+            *a = match mi.get_pixel_checked(x as _, y as _) {
+                None => false,
+                Some(Luma([v])) if *v >= 254 => false,
                 _ => true,
             };
         });
@@ -80,8 +81,8 @@ fn main() -> Result<(), Error> {
 
     let arr = <ArrayView3<u8>>::from_shape(
         (
-            im.width() as usize,
             im.height() as usize,
+            im.width() as usize,
             match im {
                 DynamicImage::ImageLuma8(_) => 1,
                 DynamicImage::ImageLumaA8(_) => 2,

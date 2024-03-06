@@ -40,6 +40,8 @@ Arguments:
 Options:
   -m, --mask <MASK>            Mask file
   -t, --tile-size <TILE_SIZE>  Tile size (must be power of 2)
+  -r, --rotate                 Rotate blocks randomly
+  -f, --flip                   Flip blocks randomly
       --seed <SEED>            Random seed
   -o, --output <OUTPUT>        Output file
   -h, --help                   Print help
@@ -48,4 +50,4 @@ Options:
 
 ## License
 
-This library is licensed with GNU Lesser General Public License version 3.
+This library is licensed with GNU General Public License version 3.

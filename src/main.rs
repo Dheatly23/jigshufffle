@@ -46,11 +46,11 @@ struct Args {
     tile_size: usize,
 
     /// Rotate blocks randomly
-    #[arg(long)]
+    #[arg(short = 'r', long)]
     rotate: bool,
 
     /// Flip blocks randomly
-    #[arg(long)]
+    #[arg(short = 'f', long)]
     flip: bool,
 
     /// Random seed

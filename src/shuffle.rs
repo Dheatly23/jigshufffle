@@ -158,7 +158,7 @@ where
             .collect();
         blocks.sort_unstable_by_key(|&(r, c, _)| (r, c));
         for (_, _, mode) in &mut blocks {
-            *mode = match (config.flip, config.rotate) {
+            *mode = match (config.rotate, config.flip) {
                 (false, false) => break,
                 (true, false) => match random.gen_range(0u32..4) {
                     0 => Mode::Noop,

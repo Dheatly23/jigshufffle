@@ -96,12 +96,14 @@ fn mask_expand(mut mask: ArrayViewMut2<u64>, chunk_po2: usize) {
 
 #[derive(Debug, Clone, Copy)]
 enum Mode {
-    Noop = 0,
-    RotateCW = 1,
-    RotateCCW = 2,
-    FlipBoth = 3,
-    FlipX = 4,
-    FlipY = 5,
+    Noop,
+    FlipX,
+    FlipY,
+    FlipBoth,
+    Swap,
+    SwapFlipX,
+    SwapFlipY,
+    SwapFlipBoth,
 }
 
 /// Main jigshuffle algorithm.
@@ -156,20 +158,33 @@ where
             .collect();
         blocks.sort_unstable_by_key(|&(r, c, _)| (r, c));
         for (_, _, mode) in &mut blocks {
-            let v: usize = match (config.flip, config.rotate) {
+            *mode = match (config.flip, config.rotate) {
                 (false, false) => break,
-                (true, false) => random.gen_range(0..4),
-                (false, true) => random.gen_range(3..6),
-                (true, true) => random.gen_range(0..6),
-            };
-            *mode = match v {
-                0 => Mode::Noop,
-                1 => Mode::RotateCW,
-                2 => Mode::RotateCCW,
-                3 => Mode::FlipBoth,
-                4 => Mode::FlipX,
-                5 => Mode::FlipY,
-                _ => unreachable!("Value should be bounded"),
+                (true, false) => match random.gen_range(0u32..4) {
+                    0 => Mode::Noop,
+                    1 => Mode::SwapFlipX,
+                    2 => Mode::SwapFlipY,
+                    3 => Mode::FlipBoth,
+                    v => unreachable!("Out-of-bound value {v}"),
+                },
+                (false, true) => match random.gen_range(0u32..4) {
+                    0 => Mode::Noop,
+                    1 => Mode::FlipX,
+                    2 => Mode::FlipY,
+                    3 => Mode::FlipBoth,
+                    v => unreachable!("Out-of-bound value {v}"),
+                },
+                (true, true) => match random.gen_range(0u32..8) {
+                    0 => Mode::Noop,
+                    1 => Mode::FlipX,
+                    2 => Mode::FlipY,
+                    3 => Mode::FlipBoth,
+                    4 => Mode::Swap,
+                    5 => Mode::SwapFlipX,
+                    6 => Mode::SwapFlipY,
+                    7 => Mode::SwapFlipBoth,
+                    v => unreachable!("Out-of-bound value {v}"),
+                },
             };
         }
 
@@ -197,20 +212,26 @@ where
 
                 match mode {
                     Mode::Noop => (),
-                    Mode::RotateCW => {
-                        arr.swap_axes(0, 1);
-                        arr.invert_axis(Axis(1));
-                    }
-                    Mode::RotateCCW => {
-                        arr.swap_axes(0, 1);
-                        arr.invert_axis(Axis(0));
-                    }
+                    Mode::FlipX => arr.invert_axis(Axis(1)),
+                    Mode::FlipY => arr.invert_axis(Axis(0)),
                     Mode::FlipBoth => {
                         arr.invert_axis(Axis(0));
                         arr.invert_axis(Axis(1));
                     }
-                    Mode::FlipX => arr.invert_axis(Axis(1)),
-                    Mode::FlipY => arr.invert_axis(Axis(0)),
+                    Mode::Swap => arr.swap_axes(0, 1),
+                    Mode::SwapFlipX => {
+                        arr.swap_axes(0, 1);
+                        arr.invert_axis(Axis(1));
+                    }
+                    Mode::SwapFlipY => {
+                        arr.swap_axes(0, 1);
+                        arr.invert_axis(Axis(0));
+                    }
+                    Mode::SwapFlipBoth => {
+                        arr.swap_axes(0, 1);
+                        arr.invert_axis(Axis(0));
+                        arr.invert_axis(Axis(1));
+                    }
                 }
 
                 let mut out = out.raw_view();

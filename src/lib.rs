@@ -29,4 +29,4 @@
 mod shuffle;
 
 #[doc(inline)]
-pub use crate::shuffle::jigshuffle;
+pub use crate::shuffle::{jigshuffle, Config, ConfigBuilder};

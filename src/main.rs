@@ -45,6 +45,14 @@ struct Args {
     #[arg(short = 't', long)]
     tile_size: usize,
 
+    /// Rotate blocks randomly
+    #[arg(long)]
+    rotate: bool,
+
+    /// Flip blocks randomly
+    #[arg(long)]
+    flip: bool,
+
     /// Random seed
     #[arg(long)]
     seed: Option<String>,
@@ -64,6 +72,12 @@ fn main() -> Result<(), Error> {
             1usize << tile_size
         );
     }
+
+    let config = shuffle::ConfigBuilder::new()
+        .chunk_po2(tile_size)
+        .rotate(args.rotate)
+        .flip(args.flip)
+        .build();
 
     let mut random = if let Some(seed) = args.seed {
         let mut hasher = Sha256::new();
@@ -118,7 +132,7 @@ fn main() -> Result<(), Error> {
         im.as_bytes(),
     )?;
 
-    let out = shuffle::jigshuffle(arr, mask.view(), tile_size, &mut random);
+    let out = shuffle::jigshuffle(arr, mask.view(), &config, &mut random);
 
     save_buffer(
         args.output,

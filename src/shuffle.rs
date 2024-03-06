@@ -18,6 +18,65 @@ use ndarray::prelude::*;
 use ndarray::{Slice, Zip};
 use rand::prelude::*;
 
+/// Configuration for [`jigshuffle`].
+#[derive(Debug, Clone)]
+pub struct Config {
+    chunk_po2: usize,
+    flip: bool,
+    rotate: bool,
+}
+
+/// Config builder.
+pub struct ConfigBuilder(Config);
+
+#[allow(dead_code)]
+impl ConfigBuilder {
+    /// Create new [`ConfigBuilder`]
+    pub fn new() -> Self {
+        Self(Config {
+            chunk_po2: 0,
+            flip: false,
+            rotate: false,
+        })
+    }
+
+    /// Sets chunk size as power-of-2.
+    ///
+    /// **Panics if v >= 64**
+    pub fn chunk_po2(mut self, v: usize) -> Self {
+        if v >= 64 {
+            panic!("Chunk size cannot be >= 2^64 (got 2^{v})");
+        }
+        self.0.chunk_po2 = v;
+        self
+    }
+
+    /// Sets chunk size.
+    ///
+    /// Value will be rounded down to power-of-2.
+    pub fn chunk(mut self, v: u64) -> Self {
+        self.0.chunk_po2 = v.ilog2() as _;
+        self
+    }
+
+    /// Sets flag werether it will rotate blocks.
+    pub fn rotate(mut self, v: bool) -> Self {
+        self.0.rotate = v;
+        self
+    }
+
+    /// Sets flag werether it will flip blocks.
+    pub fn flip(mut self, v: bool) -> Self {
+        self.0.flip = v;
+        self
+    }
+
+    /// Build config.
+    pub fn build(self) -> Config {
+        self.0
+    }
+}
+
 fn mask_expand(mut mask: ArrayViewMut2<u64>, chunk_po2: usize) {
     for s in 0..chunk_po2 {
         let m = 1u64 << s;
@@ -35,6 +94,16 @@ fn mask_expand(mut mask: ArrayViewMut2<u64>, chunk_po2: usize) {
     }
 }
 
+#[derive(Debug, Clone, Copy)]
+enum Mode {
+    Noop = 0,
+    RotateCW = 1,
+    RotateCCW = 2,
+    FlipBoth = 3,
+    FlipX = 4,
+    FlipY = 5,
+}
+
 /// Main jigshuffle algorithm.
 ///
 /// Shuffles an input array with mask and produces shuffled output.
@@ -43,12 +112,12 @@ fn mask_expand(mut mask: ArrayViewMut2<u64>, chunk_po2: usize) {
 /// * `arr` : Input array view. Can be multidimensional,
 ///   but only the first 2 dimension will be shuffled.
 /// * `mask` : Mask array view. Must be the same size, otherwise it panics.
-/// * `chunk_po2` : Chunk size in exponent of 2. Can be obtained by [usize.ilog2()].
+/// * `config` : Configuration options.
 /// * `random` : Random number generator.
 pub fn jigshuffle<'a, A, D, R>(
     arr: ArrayView<'_, A, D>,
     mask: ArrayView2<'_, bool>,
-    chunk_po2: usize,
+    config: &Config,
     random: &mut R,
 ) -> Array<A, D>
 where
@@ -67,11 +136,11 @@ where
 
     let mut mask: Array2<u64> = mask.mapv(|v| if v { 0 } else { 1 });
 
-    mask_expand(mask.view_mut(), chunk_po2);
+    mask_expand(mask.view_mut(), config.chunk_po2);
 
     let mut out = arr.to_owned();
 
-    for s in (0..=chunk_po2).rev() {
+    for s in (0..=config.chunk_po2).rev() {
         let m = 1u64 << s;
         let m_ = m as usize;
 
@@ -79,17 +148,36 @@ where
             .into_par_iter()
             .filter_map(|((r, c), v)| {
                 if *v & m == m {
-                    Some((r * m_, c * m_))
+                    Some((r * m_, c * m_, Mode::Noop))
                 } else {
                     None
                 }
             })
             .collect();
-        blocks.sort_unstable();
+        blocks.sort_unstable_by_key(|&(r, c, _)| (r, c));
+        for (_, _, mode) in &mut blocks {
+            let v: usize = match (config.flip, config.rotate) {
+                (false, false) => break,
+                (true, false) => random.gen_range(0..4),
+                (false, true) => random.gen_range(3..6),
+                (true, true) => random.gen_range(0..6),
+            };
+            *mode = match v {
+                0 => Mode::Noop,
+                1 => Mode::RotateCW,
+                2 => Mode::RotateCCW,
+                3 => Mode::FlipBoth,
+                4 => Mode::FlipX,
+                5 => Mode::FlipY,
+                _ => unreachable!("Value should be bounded"),
+            };
+        }
 
         #[cfg(debug_assertions)]
         for s in blocks.windows(2) {
-            debug_assert_ne!(s[0], s[1]);
+            let (r0, c0, _) = &s[0];
+            let (r1, c1, _) = &s[1];
+            debug_assert_ne!((r0, c0), (r1, c1));
         }
 
         let mut indices: Vec<_> = (0..blocks.len()).collect();
@@ -102,13 +190,31 @@ where
         blocks
             .par_iter()
             .enumerate()
-            .for_each(move |(i, &(mut r, mut c))| {
+            .for_each(move |(i, &(mut r, mut c, mode))| {
                 let mut arr = arr.view();
                 arr.slice_axis_inplace(Axis(0), Slice::from(r..r + m_));
                 arr.slice_axis_inplace(Axis(1), Slice::from(c..c + m_));
 
+                match mode {
+                    Mode::Noop => (),
+                    Mode::RotateCW => {
+                        arr.swap_axes(0, 1);
+                        arr.invert_axis(Axis(1));
+                    }
+                    Mode::RotateCCW => {
+                        arr.swap_axes(0, 1);
+                        arr.invert_axis(Axis(0));
+                    }
+                    Mode::FlipBoth => {
+                        arr.invert_axis(Axis(0));
+                        arr.invert_axis(Axis(1));
+                    }
+                    Mode::FlipX => arr.invert_axis(Axis(1)),
+                    Mode::FlipY => arr.invert_axis(Axis(0)),
+                }
+
                 let mut out = out.raw_view();
-                (r, c) = blocks[indices[i]];
+                (r, c, _) = blocks[indices[i]];
                 out.slice_axis_inplace(Axis(0), Slice::from(r..r + m_));
                 out.slice_axis_inplace(Axis(1), Slice::from(c..c + m_));
 
